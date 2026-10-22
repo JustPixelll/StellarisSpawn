@@ -6,7 +6,7 @@ import zipfile
 root = Path(__file__).resolve().parent.parent
 dist = root / "dist"
 dist.mkdir(exist_ok=True)
-archive = dist / "Starburst-Tail-Start-v0.1.0.zip"
+archive = dist / "Starburst-Tail-Start-v0.1.1.zip"
 files = [root / p for p in (
     "niki_starburst_tail_start.mod", "README-FIRST.txt", "SOURCES.txt", "VALIDATION.txt"
 )]
@@ -25,7 +25,10 @@ with zipfile.ZipFile(archive) as z:
     assert "niki_starburst_tail_start.mod" in z.namelist()
     assert "niki_starburst_tail_start/descriptor.mod" in z.namelist()
 digest = hashlib.sha256(archive.read_bytes()).hexdigest()
-(dist / "SHA256SUMS.txt").write_text(f"{digest}  {archive.name}\n")
+(dist / "SHA256SUMS.txt").write_text("".join(
+    f"{hashlib.sha256(p.read_bytes()).hexdigest()}  {p.name}\n"
+    for p in sorted(dist.glob("Starburst-Tail-Start-v*.zip"))
+))
 print(f"{archive.name}: {archive.stat().st_size:,} bytes; ZIP integrity verified")
 print(f"SHA256 {digest}")
 

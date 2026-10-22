@@ -1,6 +1,6 @@
-STARBURST TAIL START — v0.1.0 EXPERIMENTAL
+STARBURST TAIL START — v0.1.1 EXPERIMENTAL
 For Stellaris PC 4.5.x • New single-player Starburst games
-Created 22 October 2026
+Updated 22 October 2026
 
 INSTALL — WINDOWS
 1. Close Stellaris and its launcher.
@@ -13,7 +13,9 @@ INSTALL — WINDOWS
        niki_starburst_tail_start.mod
        niki_starburst_tail_start/
    The .mod file and the folder must be next to each other.
-   Do not copy the outer Starburst-Tail-Start-v0.1.0 folder itself.
+   Do not copy the outer Starburst-Tail-Start-v0.1.1 folder itself.
+   Updating from 0.1.0? Remove the old niki_starburst_tail_start folder
+   first, then copy the new folder and replace the .mod file.
 5. Open the Paradox launcher. Under your playset, add and enable:
        Starburst Tail Start (Experimental)
    If missing, restart the launcher and check the folder nesting.
@@ -28,7 +30,7 @@ No executable, PowerShell script, administrator access or download is used.
 WHAT IT DOES
 - Uses the existing randomly generated Starburst galaxy.
 - Finds an eligible outer star, preferring thin tails and endpoints.
-- Moves your actual home system just outward from that star.
+- Moves your actual home system near that star, just inward at the extreme rim.
 - Moves its unowned/player-owned two-jump neighbourhood and small attached
   branches with it, up to a total of 24 systems.
 - Rebuilds the original internal hyperlanes of that starter cluster.
@@ -41,12 +43,27 @@ Planets, pops, leaders, buildings, resources and origin selections are not
 recreated or granted by this mod. Their existing systems are moved.
 No new stars are added. The old region may gain local shortcut hyperlanes.
 
-The target is the outermost eligible star between 75% and 94% of the
-galaxy's radius; your home is placed 18–26 map units farther outward.
+The target is selected from the outer 15% of the connected main galaxy's
+measured radial extent. The script prefers thin tails with a two-hop buffer
+from other empires, then dense tails with that buffer, then clear unowned
+outer systems without the buffer. It never moves into an occupied system,
+a system with an owned planet, a psionic aura or a hostile-owned fleet.
+Neutral visiting fleets no longer block a target. The old starter cluster
+must be more than 130 map units from the destination.
+
+Your home is placed 18-26 map units from the target: outward normally,
+inward if the target is at 95% or more of the nominal galactic radius.
 It aims for the END REGION of a tail. It does not guarantee the single
 farthest star on every map, and does not reserve an entire empty arm.
 The rest of the starter cluster is packed within 65 units of your home,
 towards the core. Its precise geometry changes; its internal lanes do not.
+
+CHANGES IN 0.1.1
+The first release could report "No Suitable Tail Found" even with usable
+outer systems: it required a fixed 75-94% radius, rejected all fleets and
+required a two-hop buffer. These filters are now adaptive or preferences as
+described above. The result window includes the version. A failed tail scan
+also shows counts for each filter and the measured maximum radius.
 
 ORIGINS AND COMPATIBILITY
 - This does not consume an origin, civic or trait slot.
@@ -81,7 +98,7 @@ effect/trigger documentation, with the move_system parameters cross-checked
 against CWTools and a working open-source mod implementation.
 The graph logic and package structure have been checked with synthetic maps.
 Stellaris itself is NOT installed in the build environment.
-This is an experimental first version, NOT an in-game-tested release.
+This remains experimental and has NOT been tested in the Stellaris engine.
 In particular engine placement, fleet relocation, aura recalculation,
 camera/fog behaviour and origin quest compatibility require an in-game test.
 See VALIDATION.txt for what was actually checked.
@@ -96,7 +113,14 @@ QUICK IN-GAME CHECK
 For Mindwardens, verify the story pocket BEFORE playing past the first day.
 
 IF IT DOES NOT WORK
-Send the result message, your exact Stellaris version, chosen origin and
+For "No Suitable Tail Found (v0.1.1)", send the complete popup, including
+the scan counts. If the title has no version, the old mod is still loaded.
+The same counts are written to game.log. They narrow down which filter
+rejected your generated map. The fix is tested on synthetic 1,000-system
+maps, not your save; the original rejection cannot be diagnosed exactly
+without the new counts or a save/log.
+
+Also include your exact Stellaris version, chosen origin and
 your enabled mod list, plus the relevant lines from:
   Documents/Paradox Interactive/Stellaris/logs/error.log
   Documents/Paradox Interactive/Stellaris/logs/game.log

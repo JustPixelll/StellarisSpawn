@@ -8,6 +8,8 @@ Engine-generated command documentation, public dump:
 https://github.com/OldEnt/stellaris-triggers-modifiers-effects-list/blob/master/4.5.1_game_effects.log
 https://github.com/OldEnt/stellaris-triggers-modifiers-effects-list/blob/master/4.5.1_game_triggers.log
 Used to check actual engine command names and scopes.
+For v0.1.1: numeric distance export, scoped variable comparisons, ordered
+system selection and the is_hostile country trigger were rechecked here.
 
 CWTools' Stellaris schema, maintained by its authors:
 https://github.com/cwtools/cwtools-stellaris-config/blob/master/config/effects.cwt

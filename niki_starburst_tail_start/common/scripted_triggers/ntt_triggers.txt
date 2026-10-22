@@ -1,31 +1,49 @@
-# Applied to an unowned target system. ROOT is the human country.
-ntt_tail_candidate = {
+# All four triggers run in system scope. ROOT is the human country.
+ntt_tail_unoccupied = {
     has_star_flag = ntt_main
     NOT = { has_star_flag = ntt_cluster }
     has_owner = no
-    distance_to_core_percent >= 75
-    distance_to_core_percent <= 94
-    has_psionic_aura = no
     NOT = { any_system_planet = { has_owner = yes } }
-    NOT = { any_fleet_in_system = { always = yes } }
-    # Keep the exit away from other empires and their immediate borders.
+}
+
+ntt_tail_clear = {
+    ntt_tail_unoccupied = yes
+    has_psionic_aura = no
+    # A neutral visitor should not rule out an otherwise usable tail.
     NOT = {
-        any_neighbor_system = {
-            OR = {
-                has_owner = yes
-                any_neighbor_system = { has_owner = yes }
-            }
+        any_fleet_in_system = {
+            exists = owner
+            owner = { is_hostile = root }
         }
     }
+}
+
+ntt_tail_candidate = {
+    ntt_tail_clear = yes
+    # Measured from this map's main galaxy, rather than a fixed 75-94% band.
+    check_variable = { which = ntt_radius value >= root.ntt_outer_band }
     # Keep all old cluster locations well away from the destination.
-    # This also makes the post-move distance check discriminate a failed move.
+    # 130 > 40 + 80: an unmoved home/companion cannot pass placement checks.
     NOT = {
         any_system = {
             has_star_flag = ntt_cluster
             distance = {
                 source = prev
                 type = euclidean
-                max_distance <= 150
+                max_distance <= 130
+            }
+        }
+    }
+}
+
+# A two-hop buffer is preferred. Crowded maps can use a clear, unowned
+# outer system without it; ownership, hostile fleets and auras stay excluded.
+ntt_tail_has_buffer = {
+    NOT = {
+        any_neighbor_system = {
+            OR = {
+                has_owner = yes
+                any_neighbor_system = { has_owner = yes }
             }
         }
     }

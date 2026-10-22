@@ -1,9 +1,11 @@
 VALIDATION — 22 October 2026
-Starburst Tail Start 0.1.0
+Starburst Tail Start 0.1.1
 
 These checks passed locally:
 - Package grammar, UTF-8 BOM localisation, event references and descriptor path
 - 8 synthetic 615/620-system layouts: outer target, original internal graph, one short exit, preserved connectivity/ownership, origin pocket and idempotence
+- 4 synthetic 1,000-system regressions: compact extent, neutral fleets, endpoints beyond 94%, crowded borders; story pocket, topology, ownership, radius and idempotence checked
+- 6 tail rejection cases retain diagnostics and leave the map unchanged: owners, colonies, hostile fleets, aura, separation and failed numeric export
 - No eligible tail: no graph or position changes
 - Unrelated psionic aura in the core component does not block relocation
 - Oversized attached branch: no graph or position changes
@@ -12,11 +14,17 @@ These checks passed locally:
 
 The tests parse and execute the shipped scripts in a deliberately limited
 Python graph model. The model covers scopes, dynamic relationship flags,
-flood-fill selection, internal-edge restoration, failure branches and
-idempotence. It is not the Stellaris engine.
+flood-fill selection, adaptive tail selection, internal-edge restoration,
+failure branches, diagnostics and idempotence. It is not the Stellaris engine.
+
+Four synthetic 1,000-system layouts cover failure modes in the old tail
+filters. These are constructed test cases, not the user's save or actual
+Huge galaxy generation. They retain a small attached origin-style pocket,
+but cannot establish compatibility with the Mindwardens quest scripts.
+The exact gate that rejected the user's original map is not yet known.
 
 The placement model uses simple coordinates and does not emulate the game's
-collision handling, object ownership bookkeeping, fleets, visibility,
+collision handling, object ownership bookkeeping, fleet movement, visibility,
 psionic aura propagation, scripted origin setup or delayed events.
 
 NOT performed: launch in Stellaris, new-game generation in the engine,

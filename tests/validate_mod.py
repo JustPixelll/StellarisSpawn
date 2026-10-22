@@ -54,6 +54,7 @@ class Obj:
     flags: set=field(default_factory=set)
     vars: dict=field(default_factory=dict)
     owner: object=None
+    hostile_to: set=field(default_factory=set)
     aura: bool=False
     fleets: list=field(default_factory=list)
     planets: list=field(default_factory=list)
@@ -65,7 +66,8 @@ class Ctx:
     root: Obj
 
 class Model:
-    def __init__(self, stars, edges, home, fail=None, nomad=False, origin='origin_default'):
+    def __init__(self, stars, edges, home, fail=None, nomad=False,
+                 origin='origin_default', galaxy_radius=500, fail_radius=False):
         self.stars=stars
         self.edges={frozenset(e) for e in edges}
         self.player=Obj('player')
@@ -76,6 +78,8 @@ class Model:
         self.targets={}
         self.messages=[]
         self.fail=fail
+        self.galaxy_radius=galaxy_radius
+        self.fail_radius=fail_radius
         self.move_count=0
         self.rng=random.Random(9)
         self.day=1
@@ -90,6 +94,7 @@ class Model:
         if v.lower()=='root': return c.root
         if v=='capital_scope': return self.home
         if v=='solar_system': return c.scope
+        if v=='owner': return c.scope.owner
         if v.startswith('event_target:'): return self.targets.get(v.split(':',1)[1])
         raise ValueError('Unknown ref '+v)
 
@@ -100,9 +105,13 @@ class Model:
 
     def number(self,v,c):
         if v=='trigger:distance_to_core_percent':
-            return math.hypot(c.scope.x,c.scope.y)/5
+            return math.hypot(c.scope.x,c.scope.y)/self.galaxy_radius*100
         try: return float(v)
-        except ValueError: return c.scope.vars.get(v,0)
+        except ValueError:
+            if '.' in v:
+                scope,key=v.rsplit('.',1)
+                return self.ref(scope,c).vars.get(key,0)
+            return c.scope.vars.get(v,0)
 
     def objects(self,k,c):
         if k.endswith('neighbor_system'):
@@ -129,7 +138,7 @@ class Model:
         if k in triggers: return self.condition(triggers[k],c)==(v=='yes')
         if k in ('AND','OR'): return self.condition(v,c,k)
         if k=='NOT': return not self.condition(v,c)
-        if k.startswith('event_target:') or k in ('root','capital_scope','solar_system'):
+        if k.startswith('event_target:') or k in ('root','capital_scope','solar_system','owner'):
             target=self.ref(k,c)
             return bool(target) and self.condition(v,self.child(target,c))
         if k.startswith('any_'):
@@ -144,10 +153,11 @@ class Model:
         elif k=='always': result=v=='yes'
         elif k=='exists': result=self.ref(v,c) is not None
         elif k=='is_owned_by': result=c.scope.owner is self.ref(v,c)
+        elif k=='is_hostile': result=self.ref(v,c) in c.scope.hostile_to
         elif k=='is_same_value': result=c.scope is self.ref(v,c)
         elif k=='has_hyperlane_to': result=frozenset((c.scope,self.ref(v,c))) in self.edges
         elif k=='distance_to_core_percent':
-            result=self.compare(math.hypot(c.scope.x,c.scope.y)/5,o,float(v))
+            result=self.compare(self.number('trigger:distance_to_core_percent',c),o,float(v))
         elif k=='check_variable':
             key=get(v,'which')
             rule=next(x for x in v if x[0]=='value')
@@ -200,9 +210,14 @@ class Model:
             elif k=='save_event_target_as': self.targets[v]=c.scope
             elif k.startswith('set_') and k.endswith('_flag'): c.scope.flags.add(self.flag(v,c))
             elif k.startswith('remove_') and k.endswith('_flag'): c.scope.flags.discard(self.flag(v,c))
-            elif k in ('set_variable','change_variable'):
+            elif k in ('set_variable','change_variable','multiply_variable'):
                 key=get(v,'which'); value=self.number(get(v,'value'),c)
-                c.scope.vars[key]=(c.scope.vars.get(key,0)+value) if k=='change_variable' else value
+                if k=='change_variable': value=c.scope.vars.get(key,0)+value
+                elif k=='multiply_variable': value=c.scope.vars.get(key,0)*value
+                c.scope.vars[key]=value
+            elif k=='export_trigger_value_to_variable':
+                value=self.number('trigger:'+get(v,'trigger'),c)
+                c.scope.vars[get(v,'variable')]=0 if self.fail_radius else value
             elif k=='clear_variable': c.scope.vars.pop(v,None)
             elif k in ('add_hyperlane','remove_hyperlane'):
                 a=self.ref(get(v,'from'),c); b2=self.ref(get(v,'to'),c)
@@ -237,16 +252,18 @@ class Model:
             self.run(get(event,'immediate'),c)
 
 def reached(stars,edges,start,blocked=frozenset()):
+    adjacency={s:set() for s in stars}
+    for edge in edges:
+        a,b=tuple(edge)
+        adjacency[a].add(b); adjacency[b].add(a)
     seen={start}; todo=[start]
     while todo:
         a=todo.pop()
-        for edge in edges:
-            if a in edge:
-                for b in edge:
-                    if b not in seen and b not in blocked: seen.add(b); todo.append(b)
+        for b in adjacency[a]:
+            if b not in seen and b not in blocked: seen.add(b); todo.append(b)
     return seen
 
-def galaxy(seed=0,pocket=0):
+def galaxy(seed=0,pocket=0,arm_length=34,radial_step=13):
     rng=random.Random(seed)
     stars=[Obj('core',40,0)]
     edges=[]
@@ -254,10 +271,10 @@ def galaxy(seed=0,pocket=0):
     for arm in range(6):
         rows=[]
         angle=arm*math.pi/3
-        for j in range(1,35):
+        for j in range(1,arm_length+1):
             row=[]
             for lane in range(3):
-                radius=30+13*j
+                radius=30+radial_step*j
                 lateral=(lane-1)*18
                 s=Obj(f'a{arm}r{j}l{lane}',
                       math.cos(angle)*radius-math.sin(angle)*lateral,
@@ -280,11 +297,41 @@ def galaxy(seed=0,pocket=0):
     stars.extend([l1,l2]); edges.append((l1,l2))
     return stars,edges,home
 
+def huge_galaxy(mode):
+    """Synthetic 1,000-star Starburst with a small attached story pocket.
+
+    This is a test topology, not Stellaris's generator or the Mindwardens
+    origin scripts. Use a nominal radius of 450 map units for these cases.
+    """
+    stars,edges,home=galaxy(pocket=5,arm_length=55,radial_step=7.45)
+    while len(stars)<1000:
+        s=Obj('extra'+str(len(stars)),35,len(stars)-998)
+        stars.append(s); edges.append((stars[0],s))
+    assert len(stars)==1000
+    neutral=Obj('neutral')
+    foreign=Obj('foreign')
+    for s in stars:
+        if s.id.startswith('unreachable'): continue
+        if mode=='compact': s.x*=.6; s.y*=.6
+        if mode=='neutral_fleets': s.fleets=[Obj('visitor',owner=neutral)]
+        if s.id.startswith('a'):
+            row=int(s.id.split('r')[1].split('l')[0])
+            if mode=='outside_band':
+                radius=36+4.5*row if row<=47 else 432+2*(row-48)
+                angle=math.atan2(s.y,s.x)
+                s.x=radius*math.cos(angle); s.y=radius*math.sin(angle)
+            if mode=='crowded' and row>=45 and row%3==0: s.owner=foreign
+    return stars,edges,home
+
 checks=[]
 def record(label): checks.append(label); print('PASS',label)
 def cleanup_ok(m):
     assert not any(any(f.startswith('ntt_') for f in s.flags) for s in m.stars)
-    assert not m.player.vars
+    assert not any(s.vars for s in m.stars)
+    assert set(m.player.vars) <= {
+        'ntt_diag_main','ntt_diag_outer','ntt_diag_empty',
+        'ntt_diag_clear','ntt_diag_candidates','ntt_diag_radius'
+    }
     assert 'ntt_growing' not in m.player.flags
     assert 'ntt_bad_layout' not in m.player.flags
 
@@ -337,6 +384,86 @@ for seed in range(8):
     assert after==(set(m.edges),[(s.x,s.y) for s in stars],list(m.messages))
 record('8 synthetic 615/620-system layouts: outer target, original internal graph, one short exit, preserved connectivity/ownership, origin pocket and idempotence')
 
+# Regressions for the reported Huge Starburst / Mindwardens setup. The pocket
+# is structural only: actual Mindwardens event/aura behaviour is not emulated.
+for mode in ('compact','neutral_fleets','outside_band','crowded'):
+    stars,edges,home=huge_galaxy(mode)
+    m=Model(stars,edges,home,origin='origin_mindwardens',galaxy_radius=450)
+    before_edges=set(m.edges)
+    before_positions={s:(s.x,s.y) for s in stars}
+    before_owners={s:s.owner for s in stars}
+    connected=reached(stars,m.edges,home)
+    if mode in ('compact','outside_band'):
+        # Neither layout has a normal star in v0.1.0's fixed radial band.
+        assert not any(75 <= math.hypot(s.x,s.y)/4.5 <= 94
+                       for s in stars if s.id.startswith('a'))
+    m.start()
+    assert m.messages==['ntt.10'], (mode,m.messages,m.player.vars)
+    tail=m.targets['ntt_tail']
+    assert tail.owner is None
+    assert not tail.aura and not any(p.owner for p in tail.planets)
+    assert not tail.id.startswith('unreachable')
+    assert math.hypot(*before_positions[tail])/4.5 >= .85*m.player.vars['ntt_diag_radius']
+    moved={s for s in stars if before_positions[s]!=(s.x,s.y)}
+    assert home in moved
+    assert all(s in moved for s in stars if s.id.startswith('origin'))
+    assert {e for e in before_edges if e<=moved} == {e for e in m.edges if e<=moved}
+    assert reached(stars,m.edges,home)==connected
+    exits=[e for e in m.edges if len(e & moved)==1]
+    assert exits==[frozenset((home,tail))]
+    assert math.dist((home.x,home.y),(tail.x,tail.y))<=40
+    assert all(math.hypot(s.x,s.y)<=450 for s in moved)
+    assert all(s.owner is before_owners[s] for s in stars)
+    if mode=='outside_band':
+        assert math.hypot(home.x,home.y)<math.hypot(tail.x,tail.y)
+    if mode=='neutral_fleets': assert tail.fleets
+    if mode=='crowded':
+        assert not m.condition(triggers['ntt_tail_has_buffer'],Ctx(tail,None,m.player))
+    assert m.player.vars['ntt_diag_main'] >= m.player.vars['ntt_diag_outer'] >= \
+        m.player.vars['ntt_diag_empty'] >= m.player.vars['ntt_diag_clear'] >= \
+        m.player.vars['ntt_diag_candidates'] > 0
+    cleanup_ok(m)
+    after=(set(m.edges),[(s.x,s.y) for s in stars],list(m.messages),dict(m.player.vars))
+    m.start()
+    assert after==(set(m.edges),[(s.x,s.y) for s in stars],list(m.messages),dict(m.player.vars))
+record('4 synthetic 1,000-system regressions: compact extent, neutral fleets, endpoints beyond 94%, crowded borders; story pocket, topology, ownership, radius and idempotence checked')
+
+# Exercise rejection gates independently of the graph classifier. An occupied
+# or dangerous rim must not make the adaptive band fall back into the core.
+for hazard in ('system_owner','planet_owner','hostile_fleet','aura','too_near','radius_export'):
+    home=Obj('home',-350,0)
+    core=Obj('core',100,0)
+    rim=Obj('rim',440,0)
+    stars=[home,core,rim]
+    m=Model(stars,[(home,core),(core,rim)],home,galaxy_radius=450,
+            fail_radius=hazard=='radius_export')
+    home.flags.add('ntt_cluster')
+    for s in (core,rim): s.flags.add('ntt_main')
+    m.targets['ntt_home']=home
+    foreign=Obj('foreign')
+    if hazard=='system_owner': rim.owner=foreign
+    if hazard=='planet_owner': rim.planets=[Obj('colony',owner=foreign)]
+    if hazard=='hostile_fleet':
+        foreign.hostile_to.add(m.player)
+        rim.fleets=[Obj('hostile',owner=foreign)]
+    if hazard=='aura': rim.aura=True
+    if hazard=='too_near': home.x=390
+    before=(set(m.edges),[(s.x,s.y) for s in stars])
+    c=Ctx(m.player,None,m.player)
+    m.run(effects['ntt_select_tail'],c)
+    m.run(effects['ntt_cleanup'],c)
+    assert m.messages==['ntt.11'], (hazard,m.messages)
+    assert before==(set(m.edges),[(s.x,s.y) for s in stars])
+    assert m.player.vars['ntt_diag_candidates']==0
+    if hazard=='radius_export': assert m.player.vars['ntt_diag_radius']==0
+    else: assert m.player.vars['ntt_diag_radius']>0 and m.player.vars['ntt_diag_outer']==1
+    if hazard in ('system_owner','planet_owner'): assert m.player.vars['ntt_diag_empty']==0
+    if hazard in ('hostile_fleet','aura'):
+        assert m.player.vars['ntt_diag_empty']==1 and m.player.vars['ntt_diag_clear']==0
+    if hazard=='too_near': assert m.player.vars['ntt_diag_clear']==1
+    cleanup_ok(m)
+record('6 tail rejection cases retain diagnostics and leave the map unchanged: owners, colonies, hostile fleets, aura, separation and failed numeric export')
+
 stars,edges,home=galaxy()
 m=Model(stars,edges,home)
 for s in stars:
@@ -387,17 +514,23 @@ for failure,message in [('home','ntt.14'),('companion','ntt.13')]:
 record('Injected home and companion placement failures produce failure messages, never success')
 
 validation = '''VALIDATION — 22 October 2026
-Starburst Tail Start 0.1.0
+Starburst Tail Start 0.1.1
 
 These checks passed locally:
 ''' + ''.join('- '+c+'\n' for c in checks) + '''
 The tests parse and execute the shipped scripts in a deliberately limited
 Python graph model. The model covers scopes, dynamic relationship flags,
-flood-fill selection, internal-edge restoration, failure branches and
-idempotence. It is not the Stellaris engine.
+flood-fill selection, adaptive tail selection, internal-edge restoration,
+failure branches, diagnostics and idempotence. It is not the Stellaris engine.
+
+Four synthetic 1,000-system layouts cover failure modes in the old tail
+filters. These are constructed test cases, not the user's save or actual
+Huge galaxy generation. They retain a small attached origin-style pocket,
+but cannot establish compatibility with the Mindwardens quest scripts.
+The exact gate that rejected the user's original map is not yet known.
 
 The placement model uses simple coordinates and does not emulate the game's
-collision handling, object ownership bookkeeping, fleets, visibility,
+collision handling, object ownership bookkeeping, fleet movement, visibility,
 psionic aura propagation, scripted origin setup or delayed events.
 
 NOT performed: launch in Stellaris, new-game generation in the engine,

@@ -186,16 +186,72 @@ ntt_classify_components = {
 }
 
 ntt_select_tail = {
-    # Prefer the outermost eligible endpoint or thin part of a tail.
+    # Keep six small country variables for the result window and bug reports.
+    # Star radii and all working state are removed by ntt_cleanup.
+    set_variable = { which = ntt_diag_main value = 0 }
+    set_variable = { which = ntt_diag_outer value = 0 }
+    set_variable = { which = ntt_diag_empty value = 0 }
+    set_variable = { which = ntt_diag_clear value = 0 }
+    set_variable = { which = ntt_diag_candidates value = 0 }
+    set_variable = { which = ntt_diag_radius value = 0 }
+
+    # Measure the full connected main galaxy, including occupied systems.
+    # Using only eligible systems would let the band collapse into the core.
+    every_system = {
+        limit = { has_star_flag = ntt_main }
+        export_trigger_value_to_variable = {
+            trigger = distance_to_core_percent
+            variable = ntt_radius
+        }
+        root = { change_variable = { which = ntt_diag_main value = 1 } }
+    }
+    ordered_system = {
+        limit = { has_star_flag = ntt_main }
+        order_by = ntt_radius
+        inverse = no
+        position = 0
+        root = { set_variable = { which = ntt_diag_radius value = prev.ntt_radius } }
+    }
+    set_variable = { which = ntt_outer_band value = ntt_diag_radius }
+    multiply_variable = { which = ntt_outer_band value = 0.85 }
+
+    # Do not fall back to arbitrary systems if numeric export fails.
+    if = {
+        limit = { check_variable = { which = ntt_diag_radius value > 0 } }
+        every_system = {
+            limit = {
+                has_star_flag = ntt_main
+                check_variable = { which = ntt_radius value >= root.ntt_outer_band }
+            }
+            root = { change_variable = { which = ntt_diag_outer value = 1 } }
+            if = {
+                limit = { ntt_tail_unoccupied = yes }
+                root = { change_variable = { which = ntt_diag_empty value = 1 } }
+            }
+            if = {
+                limit = { ntt_tail_clear = yes }
+                root = { change_variable = { which = ntt_diag_clear value = 1 } }
+            }
+            if = {
+                limit = { ntt_tail_candidate = yes }
+                set_star_flag = ntt_candidate
+                root = { change_variable = { which = ntt_diag_candidates value = 1 } }
+            }
+        }
+    }
+    log = "[Starburst Tail Start v0.1.1] Tail scan: main=[Root.ntt_diag_main], outer=[Root.ntt_diag_outer], unoccupied=[Root.ntt_diag_empty], clear=[Root.ntt_diag_clear], separated=[Root.ntt_diag_candidates], max_radius=[Root.ntt_diag_radius]."
+
+    # Prefer the outermost thin tail with a two-hop buffer from other empires.
     ordered_system = {
         limit = {
-            ntt_tail_candidate = yes
+            has_star_flag = ntt_candidate
+            ntt_tail_has_buffer = yes
             count_neighbor_system = {
                 limit = { always = yes }
                 count <= 2
             }
         }
-        order_by = trigger:distance_to_core_percent
+        order_by = ntt_radius
         inverse = no
         position = 0
         save_event_target_as = ntt_tail
@@ -204,8 +260,22 @@ ntt_select_tail = {
     if = {
         limit = { NOT = { exists = event_target:ntt_tail } }
         ordered_system = {
-            limit = { ntt_tail_candidate = yes }
-            order_by = trigger:distance_to_core_percent
+            limit = {
+                has_star_flag = ntt_candidate
+                ntt_tail_has_buffer = yes
+            }
+            order_by = ntt_radius
+            inverse = no
+            position = 0
+            save_event_target_as = ntt_tail
+        }
+    }
+    # A nearby border is a preference, not a reason to reject the entire map.
+    if = {
+        limit = { NOT = { exists = event_target:ntt_tail } }
+        ordered_system = {
+            limit = { has_star_flag = ntt_candidate }
+            order_by = ntt_radius
             inverse = no
             position = 0
             save_event_target_as = ntt_tail
@@ -240,13 +310,30 @@ ntt_snapshot_links = {
 
 ntt_relocate = {
     event_target:ntt_home = {
-        move_system = {
-            target = event_target:ntt_tail
-            min_distance = 18
-            max_distance = 26
-            direction = rimwards
-            hyperlane = no
-            reset_terra_incognita = yes
+        # The old 94% ceiling excluded actual tail endpoints. At the extreme
+        # rim, place just inside the target instead of pushing beyond the map.
+        if = {
+            limit = {
+                event_target:ntt_tail = { distance_to_core_percent >= 95 }
+            }
+            move_system = {
+                target = event_target:ntt_tail
+                min_distance = 18
+                max_distance = 26
+                direction = corewards
+                hyperlane = no
+                reset_terra_incognita = yes
+            }
+        }
+        else = {
+            move_system = {
+                target = event_target:ntt_tail
+                min_distance = 18
+                max_distance = 26
+                direction = rimwards
+                hyperlane = no
+                reset_terra_incognita = yes
+            }
         }
         if = {
             limit = {
@@ -341,18 +428,18 @@ ntt_relocate = {
                 }
             }
             set_country_flag = ntt_complete
-            log = "[Starburst Tail Start] Complete: [Root.GetName], [event_target:ntt_home.GetName] near [event_target:ntt_tail.GetName]."
+            log = "[Starburst Tail Start v0.1.1] Complete: [Root.GetName], [event_target:ntt_home.GetName] near [event_target:ntt_tail.GetName]."
             country_event = { id = ntt.10 }
         }
         else = {
             set_country_flag = ntt_failed
-            log = "[Starburst Tail Start] PARTIAL MOVE. Discard this new galaxy; the engine did not place every starter system."
+            log = "[Starburst Tail Start v0.1.1] PARTIAL MOVE. Discard this new galaxy; the engine did not place every starter system."
             country_event = { id = ntt.13 }
         }
     }
     else = {
         set_country_flag = ntt_failed
-        log = "[Starburst Tail Start] Home move failed its position check; no companion systems moved."
+        log = "[Starburst Tail Start v0.1.1] Home move failed its position check; no companion systems moved."
         country_event = { id = ntt.14 }
     }
 }
@@ -375,6 +462,7 @@ ntt_cleanup = {
                 has_star_flag = ntt_moved
                 has_star_flag = ntt_classified
                 has_star_flag = ntt_component
+                has_star_flag = ntt_candidate
             }
         }
         remove_star_flag = ntt_reachable
@@ -384,9 +472,12 @@ ntt_cleanup = {
         remove_star_flag = ntt_moved
         remove_star_flag = ntt_classified
         remove_star_flag = ntt_component
+        remove_star_flag = ntt_candidate
+        clear_variable = ntt_radius
     }
     remove_country_flag = ntt_growing
     remove_country_flag = ntt_bad_layout
     clear_variable = ntt_passes
     clear_variable = ntt_components
+    clear_variable = ntt_outer_band
 }

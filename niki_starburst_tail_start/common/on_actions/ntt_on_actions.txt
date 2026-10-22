@@ -1,0 +1,4 @@
+# Additive on_action. No vanilla file or event is replaced.
+on_game_start_country = {
+    events = { ntt.1 }
+}

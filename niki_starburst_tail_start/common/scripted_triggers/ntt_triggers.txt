@@ -1,0 +1,32 @@
+# Applied to an unowned target system. ROOT is the human country.
+ntt_tail_candidate = {
+    has_star_flag = ntt_main
+    NOT = { has_star_flag = ntt_cluster }
+    has_owner = no
+    distance_to_core_percent >= 75
+    distance_to_core_percent <= 94
+    has_psionic_aura = no
+    NOT = { any_system_planet = { has_owner = yes } }
+    NOT = { any_fleet_in_system = { always = yes } }
+    # Keep the exit away from other empires and their immediate borders.
+    NOT = {
+        any_neighbor_system = {
+            OR = {
+                has_owner = yes
+                any_neighbor_system = { has_owner = yes }
+            }
+        }
+    }
+    # Keep all old cluster locations well away from the destination.
+    # This also makes the post-move distance check discriminate a failed move.
+    NOT = {
+        any_system = {
+            has_star_flag = ntt_cluster
+            distance = {
+                source = prev
+                type = euclidean
+                max_distance <= 150
+            }
+        }
+    }
+}

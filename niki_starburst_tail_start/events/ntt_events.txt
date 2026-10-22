@@ -1,0 +1,85 @@
+namespace = ntt
+
+# Schedule after ordinary game-start setup, so generated origin neighbours exist.
+country_event = {
+    id = ntt.1
+    hide_window = yes
+    is_triggered_only = yes
+    trigger = {
+        is_ai = no
+        is_multiplayer = no
+        galaxy_shape = starburst
+        NOT = { has_country_flag = ntt_attempted }
+        days_passed < 2
+    }
+    immediate = {
+        set_country_flag = ntt_attempted
+        country_event = { id = ntt.2 days = 1 }
+    }
+}
+
+country_event = {
+    id = ntt.2
+    hide_window = yes
+    is_triggered_only = yes
+    trigger = {
+        is_ai = no
+        is_multiplayer = no
+        galaxy_shape = starburst
+        days_passed < 3
+        NOT = { has_country_flag = ntt_processed }
+    }
+    immediate = {
+        set_country_flag = ntt_processed
+        if = {
+            limit = {
+                exists = capital_scope
+                is_nomadic = no
+                # These origins depend on multiple independently placed empires.
+                NOT = { has_origin = origin_hegemon }
+                NOT = { has_origin = origin_common_ground }
+                NOT = { has_origin = origin_imperial_vassal }
+                NOT = { has_origin = origin_payback }
+                NOT = { has_origin = origin_broken_shackles }
+            }
+            ntt_prepare = yes
+        }
+        else = { country_event = { id = ntt.12 } }
+    }
+}
+
+country_event = {
+    id = ntt.10
+    title = ntt.10.name
+    desc = ntt.10.desc
+    is_triggered_only = yes
+    option = { name = ntt.ok }
+}
+country_event = {
+    id = ntt.11
+    title = ntt.11.name
+    desc = ntt.11.desc
+    is_triggered_only = yes
+    option = { name = ntt.ok }
+}
+country_event = {
+    id = ntt.12
+    title = ntt.12.name
+    desc = ntt.12.desc
+    is_triggered_only = yes
+    option = { name = ntt.ok }
+}
+country_event = {
+    id = ntt.13
+    title = ntt.13.name
+    desc = ntt.13.desc
+    is_triggered_only = yes
+    option = { name = ntt.ok }
+}
+country_event = {
+    id = ntt.14
+    title = ntt.14.name
+    desc = ntt.14.desc
+    is_triggered_only = yes
+    option = { name = ntt.ok }
+}

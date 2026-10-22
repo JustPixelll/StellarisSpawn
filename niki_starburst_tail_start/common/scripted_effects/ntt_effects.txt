@@ -1,0 +1,392 @@
+# All public effects are called in country scope, ROOT = human.
+# Flags are temporary and single-player only; there are no recurring handlers.
+
+ntt_prepare = {
+    capital_scope = {
+        solar_system = {
+            save_event_target_as = ntt_home
+            set_star_flag = ntt_reachable
+            set_star_flag = ntt_cluster
+        }
+    }
+
+    ntt_flood_reachable = yes
+
+    if = {
+        limit = { NOT = { has_country_flag = ntt_growing } }
+
+        # Preserve the ordinary unowned two-jump starting neighbourhood.
+        # Nested traversal is intentionally based on the pre-move hyperlanes.
+        event_target:ntt_home = {
+            every_neighbor_system = {
+                limit = {
+                    OR = { has_owner = no is_owned_by = root }
+                }
+                set_star_flag = ntt_cluster
+                every_neighbor_system = {
+                    limit = {
+                        OR = { has_owner = no is_owned_by = root }
+                    }
+                    set_star_flag = ntt_cluster
+                }
+            }
+        }
+
+        # Classify every remaining connected component separately. A long
+        # ordinary arm stays in place; small attached pockets travel with us.
+        ordered_system = {
+            limit = {
+                has_star_flag = ntt_reachable
+                NOT = { has_star_flag = ntt_cluster }
+            }
+            order_by = trigger:distance_to_core_percent
+            inverse = yes
+            position = 0
+            save_event_target_as = ntt_core
+        }
+        ntt_classify_components = yes
+        if = {
+            limit = {
+                NOT = { has_country_flag = ntt_bad_layout }
+                count_system = {
+                    limit = { has_star_flag = ntt_cluster }
+                    count <= 24
+                }
+                count_system = {
+                    limit = { has_star_flag = ntt_main }
+                    count >= 100
+                }
+            }
+            ntt_select_tail = yes
+        }
+        else = { country_event = { id = ntt.12 } }
+    }
+    else = { country_event = { id = ntt.12 } }
+    ntt_cleanup = yes
+}
+
+# Bounded flood fill over actual hyperlanes, never bypasses/wormholes.
+ntt_flood_reachable = {
+    set_country_flag = ntt_growing
+    set_variable = { which = ntt_passes value = 0 }
+    while = {
+        limit = {
+            has_country_flag = ntt_growing
+            check_variable = { which = ntt_passes value < 2048 }
+        }
+        remove_country_flag = ntt_growing
+        change_variable = { which = ntt_passes value = 1 }
+        every_system = {
+            limit = { has_star_flag = ntt_reachable }
+            every_neighbor_system = {
+                limit = {
+                    NOT = { has_star_flag = ntt_reachable }
+                    
+                }
+                set_star_flag = ntt_reachable
+                root = { set_country_flag = ntt_growing }
+            }
+        }
+    }
+}
+
+# Bounded flood fill over actual hyperlanes, never bypasses/wormholes.
+ntt_flood_component = {
+    set_country_flag = ntt_growing
+    set_variable = { which = ntt_passes value = 0 }
+    while = {
+        limit = {
+            has_country_flag = ntt_growing
+            check_variable = { which = ntt_passes value < 2048 }
+        }
+        remove_country_flag = ntt_growing
+        change_variable = { which = ntt_passes value = 1 }
+        every_system = {
+            limit = { has_star_flag = ntt_component }
+            every_neighbor_system = {
+                limit = {
+                    NOT = { has_star_flag = ntt_component }
+                    NOT = { has_star_flag = ntt_cluster } NOT = { has_star_flag = ntt_classified }
+                }
+                set_star_flag = ntt_component
+                root = { set_country_flag = ntt_growing }
+            }
+        }
+    }
+}
+
+ntt_classify_components = {
+    set_variable = { which = ntt_components value = 0 }
+    while = {
+        limit = {
+            NOT = { has_country_flag = ntt_bad_layout }
+            check_variable = { which = ntt_components value < 2048 }
+            any_system = {
+                has_star_flag = ntt_reachable
+                NOT = { has_star_flag = ntt_cluster }
+                NOT = { has_star_flag = ntt_classified }
+            }
+        }
+        change_variable = { which = ntt_components value = 1 }
+        random_system = {
+            limit = {
+                has_star_flag = ntt_reachable
+                NOT = { has_star_flag = ntt_cluster }
+                NOT = { has_star_flag = ntt_classified }
+            }
+            set_star_flag = ntt_component
+        }
+        ntt_flood_component = yes
+        if = {
+            limit = { has_country_flag = ntt_growing }
+            set_country_flag = ntt_bad_layout
+        }
+        if = {
+            limit = {
+                count_system = {
+                    limit = { has_star_flag = ntt_component }
+                    count <= 12
+                }
+            }
+            every_system = {
+                limit = { has_star_flag = ntt_component }
+                set_star_flag = ntt_cluster
+            }
+        }
+        else = {
+            # A large aura-bearing pocket may be origin-specific. Skip this
+            # entire relocation instead of leaving that pocket behind.
+            if = {
+                limit = {
+                    NOT = {
+                        event_target:ntt_core = { has_star_flag = ntt_component }
+                    }
+                    any_system = {
+                        has_star_flag = ntt_component
+                        has_psionic_aura = yes
+                    }
+                }
+                set_country_flag = ntt_bad_layout
+            }
+            every_system = {
+                limit = { has_star_flag = ntt_component }
+                set_star_flag = ntt_main
+            }
+        }
+        every_system = {
+            limit = { has_star_flag = ntt_component }
+            set_star_flag = ntt_classified
+            remove_star_flag = ntt_component
+        }
+    }
+    if = {
+        limit = { check_variable = { which = ntt_components value >= 2048 } }
+        set_country_flag = ntt_bad_layout
+    }
+}
+
+ntt_select_tail = {
+    # Prefer the outermost eligible endpoint or thin part of a tail.
+    ordered_system = {
+        limit = {
+            ntt_tail_candidate = yes
+            count_neighbor_system = {
+                limit = { always = yes }
+                count <= 2
+            }
+        }
+        order_by = trigger:distance_to_core_percent
+        inverse = no
+        position = 0
+        save_event_target_as = ntt_tail
+    }
+    # Dense hyperlane settings may have no degree-1/2 star near the rim.
+    if = {
+        limit = { NOT = { exists = event_target:ntt_tail } }
+        ordered_system = {
+            limit = { ntt_tail_candidate = yes }
+            order_by = trigger:distance_to_core_percent
+            inverse = no
+            position = 0
+            save_event_target_as = ntt_tail
+        }
+    }
+
+    if = {
+        limit = { exists = event_target:ntt_tail }
+        ntt_snapshot_links = yes
+        ntt_relocate = yes
+    }
+    else = { country_event = { id = ntt.11 } }
+}
+
+ntt_snapshot_links = {
+    every_system = {
+        limit = { has_star_flag = ntt_cluster }
+        every_neighbor_system = {
+            # Record a directed edge keyed by the original source system.
+            set_star_flag = ntt_link@prev
+            if = {
+                limit = { NOT = { has_star_flag = ntt_cluster } }
+                set_star_flag = ntt_boundary
+            }
+        }
+    }
+    random_system = {
+        limit = { has_star_flag = ntt_boundary }
+        save_event_target_as = ntt_bridge
+    }
+}
+
+ntt_relocate = {
+    event_target:ntt_home = {
+        move_system = {
+            target = event_target:ntt_tail
+            min_distance = 18
+            max_distance = 26
+            direction = rimwards
+            hyperlane = no
+            reset_terra_incognita = yes
+        }
+        if = {
+            limit = {
+                distance = {
+                    source = event_target:ntt_tail
+                    type = euclidean
+                    max_distance <= 40
+                }
+            }
+            set_star_flag = ntt_moved
+        }
+    }
+
+    if = {
+        limit = { event_target:ntt_home = { has_star_flag = ntt_moved } }
+
+        # The old cluster was connected. Linking its surviving boundary nodes
+        # through one surviving node preserves connectivity of the old galaxy.
+        # No new systems are generated; a few local shortcut lanes may be added.
+        every_system = {
+            limit = {
+                has_star_flag = ntt_boundary
+                NOT = { is_same_value = event_target:ntt_bridge }
+                NOT = { has_hyperlane_to = event_target:ntt_bridge }
+            }
+            add_hyperlane = { from = this to = event_target:ntt_bridge }
+        }
+
+        every_system = {
+            limit = {
+                has_star_flag = ntt_cluster
+                NOT = { is_same_value = event_target:ntt_home }
+            }
+            move_system = {
+                target = event_target:ntt_home
+                min_distance = 18
+                max_distance = 65
+                direction = corewards
+                hyperlane = no
+                reset_terra_incognita = yes
+            }
+            if = {
+                limit = {
+                    distance = {
+                        source = event_target:ntt_home
+                        type = euclidean
+                        max_distance <= 80
+                    }
+                }
+                set_star_flag = ntt_moved
+            }
+        }
+
+        # Explicitly remove any retained/generated links from relocated stars.
+        # Snapshot flags, not the mutated graph, drive the subsequent restoration.
+        every_system = {
+            limit = { has_star_flag = ntt_moved }
+            save_event_target_as = ntt_current
+            every_neighbor_system = {
+                remove_hyperlane = { from = this to = event_target:ntt_current }
+            }
+        }
+
+        # Recreate the exact internal hyperlane graph of the starter cluster.
+        every_system = {
+            limit = { has_star_flag = ntt_moved }
+            every_system = {
+                limit = {
+                    has_star_flag = ntt_moved
+                    has_star_flag = ntt_link@prev
+                    NOT = { has_hyperlane_to = prev }
+                }
+                add_hyperlane = { from = this to = prev }
+            }
+        }
+        # One local exit from the relocated home to the selected original tail.
+        add_hyperlane = {
+            from = event_target:ntt_home
+            to = event_target:ntt_tail
+        }
+        event_target:ntt_home = {
+            set_surveyed = { surveyed = yes surveyor = root }
+        }
+
+        if = {
+            limit = {
+                NOT = {
+                    any_system = {
+                        has_star_flag = ntt_cluster
+                        NOT = { has_star_flag = ntt_moved }
+                    }
+                }
+            }
+            set_country_flag = ntt_complete
+            log = "[Starburst Tail Start] Complete: [Root.GetName], [event_target:ntt_home.GetName] near [event_target:ntt_tail.GetName]."
+            country_event = { id = ntt.10 }
+        }
+        else = {
+            set_country_flag = ntt_failed
+            log = "[Starburst Tail Start] PARTIAL MOVE. Discard this new galaxy; the engine did not place every starter system."
+            country_event = { id = ntt.13 }
+        }
+    }
+    else = {
+        set_country_flag = ntt_failed
+        log = "[Starburst Tail Start] Home move failed its position check; no companion systems moved."
+        country_event = { id = ntt.14 }
+    }
+}
+
+ntt_cleanup = {
+    every_system = {
+        limit = { has_star_flag = ntt_cluster }
+        every_system = {
+            limit = { has_star_flag = ntt_link@prev }
+            remove_star_flag = ntt_link@prev
+        }
+    }
+    every_system = {
+        limit = {
+            OR = {
+                has_star_flag = ntt_reachable
+                has_star_flag = ntt_main
+                has_star_flag = ntt_cluster
+                has_star_flag = ntt_boundary
+                has_star_flag = ntt_moved
+                has_star_flag = ntt_classified
+                has_star_flag = ntt_component
+            }
+        }
+        remove_star_flag = ntt_reachable
+        remove_star_flag = ntt_main
+        remove_star_flag = ntt_cluster
+        remove_star_flag = ntt_boundary
+        remove_star_flag = ntt_moved
+        remove_star_flag = ntt_classified
+        remove_star_flag = ntt_component
+    }
+    remove_country_flag = ntt_growing
+    remove_country_flag = ntt_bad_layout
+    clear_variable = ntt_passes
+    clear_variable = ntt_components
+}

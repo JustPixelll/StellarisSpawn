@@ -1,0 +1,25 @@
+TECHNICAL REFERENCES — accessed 22 October 2026
+
+Latest public patch announcement used for the 4.5.x target:
+https://store.steampowered.com/news/app/281990/view/668378128507209901
+Paradox: Stellaris 4.5.2 released [checksum 9776], 6 October 2026.
+
+Engine-generated command documentation, public dump:
+https://github.com/OldEnt/stellaris-triggers-modifiers-effects-list/blob/master/4.5.1_game_effects.log
+https://github.com/OldEnt/stellaris-triggers-modifiers-effects-list/blob/master/4.5.1_game_triggers.log
+Used to check actual engine command names and scopes.
+
+CWTools' Stellaris schema, maintained by its authors:
+https://github.com/cwtools/cwtools-stellaris-config/blob/master/config/effects.cwt
+Used to check move_system's direction = rimwards/corewards option.
+
+Draconas' Extragalactic Cluster Start implementation:
+https://github.com/draconas1/stellaris-mods/blob/main/stellaris-extra-galactic-start/common/scripted_effects/egs_scripted_effects.txt
+https://github.com/draconas1/stellaris-mods/blob/main/stellaris-extra-galactic-start/common/on_actions/egs_actions.txt
+Used as a reference that move_system is used to relocate actual home systems
+and that the old region's connections need repair. No third-party code or
+game assets are bundled.
+
+This mod is independently written for this request. References establish
+available scripting primitives; they do not establish in-game compatibility
+or constitute an endorsement by Paradox, CWTools or Draconas.

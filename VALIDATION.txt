@@ -1,5 +1,5 @@
-VALIDATION — 22 October 2026
-Starburst Tail Start 0.1.1
+VALIDATION — 23 October 2026
+Starburst Tail Start 0.1.2
 
 These checks passed locally:
 - Package grammar, UTF-8 BOM localisation, event references and descriptor path
@@ -11,27 +11,46 @@ These checks passed locally:
 - Oversized attached branch: no graph or position changes
 - Nomadic and five linked-empire origin guards
 - Injected home and companion placement failures produce failure messages, never success
+- Deep tail outranks a farther-out short spoke; every BFS depth matches an independent reference in both system iteration orders; success waits for the next-day check
+- Radius export uses 0-1 units consistent with observed Stellaris 4.5.2 data
+- Five post-move faults are rejected: extra exit, missing internal edge, wrong exit origin, wrong position and missing target
+- Early v0.1.1 recovery runs once; pending, repeated and day-30-or-later recovery attempts do not run
 
 The tests parse and execute the shipped scripts in a deliberately limited
 Python graph model. The model covers scopes, dynamic relationship flags,
-flood-fill selection, adaptive tail selection, internal-edge restoration,
-failure branches, diagnostics and idempotence. It is not the Stellaris engine.
+flood-fill selection, layered multi-source BFS tail depth, internal-edge
+restoration, delayed verification, failure branches and idempotence.
+It is not the Stellaris engine.
 
 Four synthetic 1,000-system layouts cover failure modes in the old tail
 filters. These are constructed test cases, not the user's save or actual
 Huge galaxy generation. They retain a small attached origin-style pocket,
 but cannot establish compatibility with the Mindwardens quest scripts.
-The exact gate that rejected the user's original map is not yet known.
+The supplied 4.5.2 save was inspected separately. It records 18 systems in
+the starting cluster, one external exit, and a radius export of 0.99458.
+That evidence corrected the model's 0-100 assumption and exposed the need
+to rank by hyperlane depth instead of radial distance.
+
+Additional one-time check, 23 October 2026 (not rerun by this test script):
+A conservative replay used the supplied save's 1,000 system coordinates,
+hyperlanes, starbase/colony occupancy, auras and fleet presence. All visiting
+non-player fleets were excluded, including neutral ones. Recovery selected
+a target at depth 44 versus the old exit's depth 18, using the new inner
+region definition. A 21-system group retained its internal graph, all six
+attached Mindwardens buffer/story systems, ownership, total connectivity
+and exactly one external exit in the model. This did not load or modify
+the user's save in Stellaris, and does not verify the origin's quest logic.
 
 The placement model uses simple coordinates and does not emulate the game's
 collision handling, object ownership bookkeeping, fleet movement, visibility,
-psionic aura propagation, scripted origin setup or delayed events.
+psionic aura propagation or scripted origin setup. Scheduled verification
+is simulated; the engine's scheduler and event-target persistence are not.
 
 NOT performed: launch in Stellaris, new-game generation in the engine,
 save/reload in the engine, multiplayer, achievement verification, or
 Mindwardens story playthrough.
 
 API evidence checked against 4.5.1 engine-generated effect/trigger docs.
-4.5.2 is the intended installed version; its game files were not available.
+The submitted save confirms 4.5.2; its installed game files were unavailable.
 
 Use README-FIRST.txt's in-game checks before committing to a campaign.

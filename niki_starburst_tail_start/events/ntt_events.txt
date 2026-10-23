@@ -31,6 +31,7 @@ country_event = {
     }
     immediate = {
         set_country_flag = ntt_processed
+        set_country_flag = ntt_v012_attempted
         if = {
             limit = {
                 exists = capital_scope
@@ -82,4 +83,42 @@ country_event = {
     desc = ntt.14.desc
     is_triggered_only = yes
     option = { name = ntt.ok }
+}
+
+# Delayed verification stays in the same event chain, retaining event targets.
+country_event = {
+    id = ntt.3
+    hide_window = yes
+    is_triggered_only = yes
+    trigger = { has_country_flag = ntt_pending_verification }
+    immediate = { ntt_verify_relocation = yes }
+}
+country_event = {
+    id = ntt.15
+    title = ntt.15.name
+    desc = ntt.15.desc
+    is_triggered_only = yes
+    option = { name = ntt.ok }
+}
+
+# Optional console recovery for an early start already moved by v0.1.0/0.1.1.
+# Never invoked automatically on load; never repeat on a v0.1.2 attempt.
+country_event = {
+    id = ntt.20
+    hide_window = yes
+    is_triggered_only = yes
+    trigger = {
+        is_ai = no
+        is_multiplayer = no
+        galaxy_shape = starburst
+        days_passed < 30
+        has_country_flag = ntt_complete
+        NOT = { has_country_flag = ntt_v012_attempted }
+        NOT = { has_country_flag = ntt_pending_verification }
+    }
+    immediate = {
+        set_country_flag = ntt_v012_attempted
+        remove_country_flag = ntt_complete
+        ntt_prepare = yes
+    }
 }

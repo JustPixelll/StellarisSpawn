@@ -1,4 +1,4 @@
-TECHNICAL REFERENCES — accessed 22 October 2026
+TECHNICAL REFERENCES — checked 22-23 October 2026
 
 Latest public patch announcement used for the 4.5.x target:
 https://store.steampowered.com/news/app/281990/view/668378128507209901
@@ -25,3 +25,12 @@ game assets are bundled.
 This mod is independently written for this request. References establish
 available scripting primitives; they do not establish in-game compatibility
 or constitute an endorsement by Paradox, CWTools or Draconas.
+
+Runtime evidence for v0.1.2:
+A user-supplied Cygnus 4.5.2 save dated 2200.01.06 was read locally. Its
+ntt_diag_radius=0.99458 established that the exported value is a fraction,
+despite the generated documentation describing a 0-100 percentage. The
+main galaxy's maximum radius and galaxy_radius field independently agree
+with that ratio. The save's graph also showed why radial ranking selected
+a shorter outer branch. The original save and its contents are not bundled
+or published with this mod.

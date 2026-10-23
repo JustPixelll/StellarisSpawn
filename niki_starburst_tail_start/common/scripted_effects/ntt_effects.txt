@@ -62,7 +62,10 @@ ntt_prepare = {
         else = { country_event = { id = ntt.12 } }
     }
     else = { country_event = { id = ntt.12 } }
-    ntt_cleanup = yes
+    if = {
+        limit = { NOT = { has_country_flag = ntt_pending_verification } }
+        ntt_cleanup = yes
+    }
 }
 
 # Bounded flood fill over actual hyperlanes, never bypasses/wormholes.
@@ -185,18 +188,74 @@ ntt_classify_components = {
     }
 }
 
+# Layer-synchronous, multi-source breadth-first search. All main systems in
+# the inner fifth of the measured radial span are seeds. Traverse the entire
+# reachable graph (including the starter cluster), so its removal cannot bias
+# the distance calculation. New nodes become the next layer, never this one.
+ntt_measure_tail_depth = {
+    ordered_system = {
+        limit = { has_star_flag = ntt_main }
+        order_by = ntt_radius
+        inverse = yes
+        position = 0
+        root = { set_variable = { which = ntt_inner_min value = prev.ntt_radius } }
+    }
+    set_variable = { which = ntt_inner_band value = ntt_diag_radius }
+    subtract_variable = { which = ntt_inner_band value = ntt_inner_min }
+    multiply_variable = { which = ntt_inner_band value = 0.20 }
+    change_variable = { which = ntt_inner_band value = ntt_inner_min }
+    set_variable = { which = ntt_depth_layer value = 0 }
+    every_system = {
+        limit = {
+            has_star_flag = ntt_main
+            check_variable = { which = ntt_radius value <= root.ntt_inner_band }
+        }
+        set_star_flag = ntt_depth_seen
+        set_star_flag = ntt_depth_frontier
+        set_variable = { which = ntt_depth value = 0 }
+    }
+    set_country_flag = ntt_growing
+    while = {
+        limit = {
+            has_country_flag = ntt_growing
+            check_variable = { which = ntt_depth_layer value < 2048 }
+        }
+        remove_country_flag = ntt_growing
+        change_variable = { which = ntt_depth_layer value = 1 }
+        every_system = {
+            limit = { has_star_flag = ntt_depth_frontier }
+            every_neighbor_system = {
+                limit = {
+                    has_star_flag = ntt_reachable
+                    NOT = { has_star_flag = ntt_depth_seen }
+                }
+                set_star_flag = ntt_depth_seen
+                set_star_flag = ntt_depth_next
+                set_variable = { which = ntt_depth value = root.ntt_depth_layer }
+                root = { set_country_flag = ntt_growing }
+            }
+            remove_star_flag = ntt_depth_frontier
+        }
+        every_system = {
+            limit = { has_star_flag = ntt_depth_next }
+            remove_star_flag = ntt_depth_next
+            set_star_flag = ntt_depth_frontier
+        }
+    }
+}
+
 ntt_select_tail = {
-    # Keep six small country variables for the result window and bug reports.
-    # Star radii and all working state are removed by ntt_cleanup.
+    # Retain country diagnostics for result messages. Working state is cleared.
     set_variable = { which = ntt_diag_main value = 0 }
     set_variable = { which = ntt_diag_outer value = 0 }
     set_variable = { which = ntt_diag_empty value = 0 }
     set_variable = { which = ntt_diag_clear value = 0 }
     set_variable = { which = ntt_diag_candidates value = 0 }
     set_variable = { which = ntt_diag_radius value = 0 }
+    set_variable = { which = ntt_diag_depth value = 0 }
 
-    # Measure the full connected main galaxy, including occupied systems.
-    # Using only eligible systems would let the band collapse into the core.
+    # In the inspected 4.5.2 save this export is a FRACTION: 0.99458,
+    # not 99.458. Keep calculations in fractions and scale only display values.
     every_system = {
         limit = { has_star_flag = ntt_main }
         export_trigger_value_to_variable = {
@@ -212,76 +271,66 @@ ntt_select_tail = {
         position = 0
         root = { set_variable = { which = ntt_diag_radius value = prev.ntt_radius } }
     }
+    set_variable = { which = ntt_diag_radius_percent value = ntt_diag_radius }
+    multiply_variable = { which = ntt_diag_radius_percent value = 100 }
     set_variable = { which = ntt_outer_band value = ntt_diag_radius }
     multiply_variable = { which = ntt_outer_band value = 0.85 }
 
-    # Do not fall back to arbitrary systems if numeric export fails.
     if = {
         limit = { check_variable = { which = ntt_diag_radius value > 0 } }
-        every_system = {
-            limit = {
-                has_star_flag = ntt_main
-                check_variable = { which = ntt_radius value >= root.ntt_outer_band }
-            }
-            root = { change_variable = { which = ntt_diag_outer value = 1 } }
-            if = {
-                limit = { ntt_tail_unoccupied = yes }
-                root = { change_variable = { which = ntt_diag_empty value = 1 } }
-            }
-            if = {
-                limit = { ntt_tail_clear = yes }
-                root = { change_variable = { which = ntt_diag_clear value = 1 } }
-            }
-            if = {
-                limit = { ntt_tail_candidate = yes }
-                set_star_flag = ntt_candidate
-                root = { change_variable = { which = ntt_diag_candidates value = 1 } }
+        ntt_measure_tail_depth = yes
+        if = {
+            limit = { NOT = { has_country_flag = ntt_growing } }
+            every_system = {
+                limit = {
+                    has_star_flag = ntt_main
+                    has_star_flag = ntt_depth_seen
+                    check_variable = { which = ntt_radius value >= root.ntt_outer_band }
+                }
+                root = { change_variable = { which = ntt_diag_outer value = 1 } }
+                if = {
+                    limit = { ntt_tail_unoccupied = yes }
+                    root = { change_variable = { which = ntt_diag_empty value = 1 } }
+                }
+                if = {
+                    limit = { ntt_tail_clear = yes }
+                    root = { change_variable = { which = ntt_diag_clear value = 1 } }
+                }
+                if = {
+                    limit = { ntt_tail_candidate = yes }
+                    set_star_flag = ntt_candidate
+                    root = { change_variable = { which = ntt_diag_candidates value = 1 } }
+                    # Depth dominates. Buffer, few lanes and radius only break
+                    # ties; they can never prefer a shallower part of an arm.
+                    set_variable = { which = ntt_tail_score value = ntt_depth }
+                    multiply_variable = { which = ntt_tail_score value = 100 }
+                    if = {
+                        limit = { ntt_tail_has_buffer = yes }
+                        change_variable = { which = ntt_tail_score value = 10 }
+                    }
+                    if = {
+                        limit = {
+                            count_neighbor_system = {
+                                limit = { always = yes }
+                                count <= 2
+                            }
+                        }
+                        change_variable = { which = ntt_tail_score value = 1 }
+                    }
+                    change_variable = { which = ntt_tail_score value = ntt_radius }
+                }
             }
         }
     }
-    log = "[Starburst Tail Start v0.1.1] Tail scan: main=[Root.ntt_diag_main], outer=[Root.ntt_diag_outer], unoccupied=[Root.ntt_diag_empty], clear=[Root.ntt_diag_clear], separated=[Root.ntt_diag_candidates], max_radius=[Root.ntt_diag_radius]."
-
-    # Prefer the outermost thin tail with a two-hop buffer from other empires.
     ordered_system = {
-        limit = {
-            has_star_flag = ntt_candidate
-            ntt_tail_has_buffer = yes
-            count_neighbor_system = {
-                limit = { always = yes }
-                count <= 2
-            }
-        }
-        order_by = ntt_radius
+        limit = { has_star_flag = ntt_candidate }
+        order_by = ntt_tail_score
         inverse = no
         position = 0
         save_event_target_as = ntt_tail
+        root = { set_variable = { which = ntt_diag_depth value = prev.ntt_depth } }
     }
-    # Dense hyperlane settings may have no degree-1/2 star near the rim.
-    if = {
-        limit = { NOT = { exists = event_target:ntt_tail } }
-        ordered_system = {
-            limit = {
-                has_star_flag = ntt_candidate
-                ntt_tail_has_buffer = yes
-            }
-            order_by = ntt_radius
-            inverse = no
-            position = 0
-            save_event_target_as = ntt_tail
-        }
-    }
-    # A nearby border is a preference, not a reason to reject the entire map.
-    if = {
-        limit = { NOT = { exists = event_target:ntt_tail } }
-        ordered_system = {
-            limit = { has_star_flag = ntt_candidate }
-            order_by = ntt_radius
-            inverse = no
-            position = 0
-            save_event_target_as = ntt_tail
-        }
-    }
-
+    log = "[Starburst Tail Start v0.1.2] Tail scan: main=[Root.ntt_diag_main], outer=[Root.ntt_diag_outer], unoccupied=[Root.ntt_diag_empty], clear=[Root.ntt_diag_clear], separated=[Root.ntt_diag_candidates], radius_percent=[Root.ntt_diag_radius_percent], target_depth=[Root.ntt_diag_depth]."
     if = {
         limit = { exists = event_target:ntt_tail }
         ntt_snapshot_links = yes
@@ -310,11 +359,21 @@ ntt_snapshot_links = {
 
 ntt_relocate = {
     event_target:ntt_home = {
-        # The old 94% ceiling excluded actual tail endpoints. At the extreme
-        # rim, place just inside the target instead of pushing beyond the map.
+        export_trigger_value_to_variable = {
+            trigger = distance_to_core_percent
+            variable = ntt_home_radius
+        }
+        root = {
+            set_variable = { which = ntt_diag_home_before value = prev.ntt_home_radius }
+            multiply_variable = { which = ntt_diag_home_before value = 100 }
+        }
+        # Use the cached FRACTION, avoiding the old 95-versus-0.95 mismatch.
+        # At the extreme rim, place just inside the target.
         if = {
             limit = {
-                event_target:ntt_tail = { distance_to_core_percent >= 95 }
+                event_target:ntt_tail = {
+                    check_variable = { which = ntt_radius value >= 0.95 }
+                }
             }
             move_system = {
                 target = event_target:ntt_tail
@@ -392,7 +451,9 @@ ntt_relocate = {
         every_system = {
             limit = { has_star_flag = ntt_moved }
             save_event_target_as = ntt_current
-            every_neighbor_system = {
+            # Iterate the stable system list while changing the neighbor list.
+            every_system = {
+                limit = { has_hyperlane_to = event_target:ntt_current }
                 remove_hyperlane = { from = this to = event_target:ntt_current }
             }
         }
@@ -427,21 +488,121 @@ ntt_relocate = {
                     }
                 }
             }
-            set_country_flag = ntt_complete
-            log = "[Starburst Tail Start v0.1.1] Complete: [Root.GetName], [event_target:ntt_home.GetName] near [event_target:ntt_tail.GetName]."
-            country_event = { id = ntt.10 }
+            set_country_flag = ntt_pending_verification
+            country_event = { id = ntt.3 days = 1 }
         }
         else = {
             set_country_flag = ntt_failed
-            log = "[Starburst Tail Start v0.1.1] PARTIAL MOVE. Discard this new galaxy; the engine did not place every starter system."
+            log = "[Starburst Tail Start v0.1.2] PARTIAL MOVE. Discard this new galaxy; the engine did not place every starter system."
             country_event = { id = ntt.13 }
         }
     }
     else = {
         set_country_flag = ntt_failed
-        log = "[Starburst Tail Start v0.1.1] Home move failed its position check; no companion systems moved."
+        log = "[Starburst Tail Start v0.1.2] Home move failed its position check; no companion systems moved."
         country_event = { id = ntt.14 }
     }
+}
+
+# Runs one day later. Check actual position, the preserved internal graph and
+# exactly one external edge before declaring success. No second move occurs.
+ntt_verify_relocation = {
+    remove_country_flag = ntt_pending_verification
+    remove_country_flag = ntt_bad_verification
+    set_variable = { which = ntt_diag_cluster value = 0 }
+    set_variable = { which = ntt_diag_exits value = 0 }
+    if = {
+        limit = {
+            exists = event_target:ntt_home
+            exists = event_target:ntt_tail
+            capital_scope = {
+                solar_system = { is_same_value = event_target:ntt_home }
+            }
+            event_target:ntt_home = {
+                has_star_flag = ntt_cluster
+                is_owned_by = root
+                distance = {
+                    source = event_target:ntt_tail
+                    type = euclidean
+                    max_distance <= 40
+                }
+            }
+        }
+        every_system = {
+            limit = { has_star_flag = ntt_cluster }
+            root = { change_variable = { which = ntt_diag_cluster value = 1 } }
+            if = {
+                limit = {
+                    NOT = {
+                        distance = {
+                            source = event_target:ntt_home
+                            type = euclidean
+                            max_distance <= 80
+                        }
+                    }
+                }
+                root = { set_country_flag = ntt_bad_verification }
+            }
+            every_system = {
+                limit = {
+                    has_star_flag = ntt_cluster
+                    OR = {
+                        AND = {
+                            has_star_flag = ntt_link@prev
+                            NOT = { has_hyperlane_to = prev }
+                        }
+                        AND = {
+                            NOT = { has_star_flag = ntt_link@prev }
+                            has_hyperlane_to = prev
+                        }
+                    }
+                }
+                root = { set_country_flag = ntt_bad_verification }
+            }
+            every_neighbor_system = {
+                limit = { NOT = { has_star_flag = ntt_cluster } }
+                root = { change_variable = { which = ntt_diag_exits value = 1 } }
+                if = {
+                    limit = {
+                        NOT = {
+                            AND = {
+                                is_same_value = event_target:ntt_tail
+                                prev = { is_same_value = event_target:ntt_home }
+                            }
+                        }
+                    }
+                    root = { set_country_flag = ntt_bad_verification }
+                }
+            }
+        }
+        event_target:ntt_home = {
+            export_trigger_value_to_variable = {
+                trigger = distance_to_core_percent
+                variable = ntt_home_radius
+            }
+            root = {
+                set_variable = { which = ntt_diag_home_after value = prev.ntt_home_radius }
+                multiply_variable = { which = ntt_diag_home_after value = 100 }
+            }
+        }
+    }
+    else = { set_country_flag = ntt_bad_verification }
+    if = {
+        limit = {
+            NOT = { has_country_flag = ntt_bad_verification }
+            check_variable = { which = ntt_diag_cluster value > 0 }
+            check_variable = { which = ntt_diag_exits value = 1 }
+        }
+        set_country_flag = ntt_complete
+        log = "[Starburst Tail Start v0.1.2] Verified: [event_target:ntt_home.GetName] near [event_target:ntt_tail.GetName], depth=[Root.ntt_diag_depth], cluster=[Root.ntt_diag_cluster], exits=[Root.ntt_diag_exits], home_radius_before=[Root.ntt_diag_home_before]%, after=[Root.ntt_diag_home_after]%."
+        country_event = { id = ntt.10 }
+    }
+    else = {
+        set_country_flag = ntt_failed
+        log = "[Starburst Tail Start v0.1.2] Verification FAILED: cluster=[Root.ntt_diag_cluster], exits=[Root.ntt_diag_exits]."
+        country_event = { id = ntt.15 }
+    }
+    ntt_cleanup = yes
 }
 
 ntt_cleanup = {
@@ -473,11 +634,21 @@ ntt_cleanup = {
         remove_star_flag = ntt_classified
         remove_star_flag = ntt_component
         remove_star_flag = ntt_candidate
+        remove_star_flag = ntt_depth_seen
+        remove_star_flag = ntt_depth_frontier
+        remove_star_flag = ntt_depth_next
         clear_variable = ntt_radius
+        clear_variable = ntt_home_radius
+        clear_variable = ntt_depth
+        clear_variable = ntt_tail_score
     }
     remove_country_flag = ntt_growing
     remove_country_flag = ntt_bad_layout
     clear_variable = ntt_passes
     clear_variable = ntt_components
     clear_variable = ntt_outer_band
+    clear_variable = ntt_inner_min
+    clear_variable = ntt_inner_band
+    clear_variable = ntt_depth_layer
+    remove_country_flag = ntt_bad_verification
 }

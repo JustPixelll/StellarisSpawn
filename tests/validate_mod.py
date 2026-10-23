@@ -4,6 +4,7 @@ This is NOT Stellaris or an engine compatibility test.
 from pathlib import Path
 from dataclasses import dataclass, field
 import re, math, random, hashlib, json, zipfile, sys
+from collections import deque
 
 BASE = Path(__file__).resolve().parent.parent
 PACK = Path(sys.argv[1]).resolve() if len(sys.argv)>1 else BASE
@@ -77,6 +78,7 @@ class Model:
         self.home.owner=self.player
         self.targets={}
         self.messages=[]
+        self.pending=[]
         self.fail=fail
         self.galaxy_radius=galaxy_radius
         self.fail_radius=fail_radius
@@ -105,7 +107,8 @@ class Model:
 
     def number(self,v,c):
         if v=='trigger:distance_to_core_percent':
-            return math.hypot(c.scope.x,c.scope.y)/self.galaxy_radius*100
+            # 4.5.2 exports a fraction, confirmed in the submitted save.
+            return math.hypot(c.scope.x,c.scope.y)/self.galaxy_radius
         try: return float(v)
         except ValueError:
             if '.' in v:
@@ -138,7 +141,7 @@ class Model:
         if k in triggers: return self.condition(triggers[k],c)==(v=='yes')
         if k in ('AND','OR'): return self.condition(v,c,k)
         if k=='NOT': return not self.condition(v,c)
-        if k.startswith('event_target:') or k in ('root','capital_scope','solar_system','owner'):
+        if k.startswith('event_target:') or k in ('root','prev','capital_scope','solar_system','owner'):
             target=self.ref(k,c)
             return bool(target) and self.condition(v,self.child(target,c))
         if k.startswith('any_'):
@@ -190,7 +193,7 @@ class Model:
                     if not did: self.run(b[i][2],c)
             elif k=='else': raise AssertionError('Orphan else')
             elif k in effects: self.run(effects[k],c)
-            elif k.startswith('event_target:') or k in ('root','capital_scope','solar_system'):
+            elif k.startswith('event_target:') or k in ('root','prev','capital_scope','solar_system'):
                 self.run(v,self.child(self.ref(k,c),c))
             elif k.startswith(('every_','random_','ordered_')):
                 pool=[s for s in self.objects(k,c)
@@ -210,10 +213,11 @@ class Model:
             elif k=='save_event_target_as': self.targets[v]=c.scope
             elif k.startswith('set_') and k.endswith('_flag'): c.scope.flags.add(self.flag(v,c))
             elif k.startswith('remove_') and k.endswith('_flag'): c.scope.flags.discard(self.flag(v,c))
-            elif k in ('set_variable','change_variable','multiply_variable'):
+            elif k in ('set_variable','change_variable','multiply_variable','subtract_variable'):
                 key=get(v,'which'); value=self.number(get(v,'value'),c)
                 if k=='change_variable': value=c.scope.vars.get(key,0)+value
                 elif k=='multiply_variable': value=c.scope.vars.get(key,0)*value
+                elif k=='subtract_variable': value=c.scope.vars.get(key,0)-value
                 c.scope.vars[key]=value
             elif k=='export_trigger_value_to_variable':
                 value=self.number('trigger:'+get(v,'trigger'),c)
@@ -240,16 +244,30 @@ class Model:
                     c.scope.y=target.y+math.sin(angle)*distance
                     # Engine placement/collision/fleet semantics are not emulated.
                     self.edges={e for e in self.edges if c.scope not in e}
-            elif k=='country_event': self.messages.append(get(v,'id'))
+            elif k=='country_event':
+                if get(v,'days'):
+                    self.pending.append((self.day+int(get(v,'days')),get(v,'id')))
+                else: self.fire(get(v,'id'))
             elif k in ('log','set_surveyed'): pass
             else: raise ValueError('Unknown effect: '+k)
             i+=1
 
-    def start(self):
+    def fire(self,event_id):
         c=Ctx(self.player,None,self.player)
-        event=events['ntt.2']
-        if self.condition(get(event,'trigger'),c):
-            self.run(get(event,'immediate'),c)
+        event=events[event_id]
+        if self.condition(get(event,'trigger',[]),c):
+            if get(event,'hide_window')!='yes': self.messages.append(event_id)
+            self.run(get(event,'immediate',[]),c)
+
+    def advance(self,days=1):
+        self.day+=days
+        due=[item for item in self.pending if item[0]<=self.day]
+        self.pending=[item for item in self.pending if item[0]>self.day]
+        for _,event_id in due: self.fire(event_id)
+
+    def start(self,verify=True):
+        self.fire('ntt.2')
+        if verify and self.pending: self.advance()
 
 def reached(stars,edges,start,blocked=frozenset()):
     adjacency={s:set() for s in stars}
@@ -328,12 +346,11 @@ def record(label): checks.append(label); print('PASS',label)
 def cleanup_ok(m):
     assert not any(any(f.startswith('ntt_') for f in s.flags) for s in m.stars)
     assert not any(s.vars for s in m.stars)
-    assert set(m.player.vars) <= {
-        'ntt_diag_main','ntt_diag_outer','ntt_diag_empty',
-        'ntt_diag_clear','ntt_diag_candidates','ntt_diag_radius'
-    }
+    assert all(k.startswith('ntt_diag_') for k in m.player.vars)
     assert 'ntt_growing' not in m.player.flags
     assert 'ntt_bad_layout' not in m.player.flags
+    assert 'ntt_bad_verification' not in m.player.flags
+    assert 'ntt_pending_verification' not in m.player.flags
 
 # Parse every shipped game script and verify localisations and launcher paths.
 for p in MOD.rglob('*.txt'): parse(p.read_text(encoding='utf-8-sig'))
@@ -403,7 +420,7 @@ for mode in ('compact','neutral_fleets','outside_band','crowded'):
     assert tail.owner is None
     assert not tail.aura and not any(p.owner for p in tail.planets)
     assert not tail.id.startswith('unreachable')
-    assert math.hypot(*before_positions[tail])/4.5 >= .85*m.player.vars['ntt_diag_radius']
+    assert math.hypot(*before_positions[tail])/450 >= .85*m.player.vars['ntt_diag_radius']
     moved={s for s in stars if before_positions[s]!=(s.x,s.y)}
     assert home in moved
     assert all(s in moved for s in stars if s.id.startswith('origin'))
@@ -437,8 +454,8 @@ for hazard in ('system_owner','planet_owner','hostile_fleet','aura','too_near','
     stars=[home,core,rim]
     m=Model(stars,[(home,core),(core,rim)],home,galaxy_radius=450,
             fail_radius=hazard=='radius_export')
-    home.flags.add('ntt_cluster')
-    for s in (core,rim): s.flags.add('ntt_main')
+    home.flags.update(('ntt_cluster','ntt_reachable'))
+    for s in (core,rim): s.flags.update(('ntt_main','ntt_reachable'))
     m.targets['ntt_home']=home
     foreign=Obj('foreign')
     if hazard=='system_owner': rim.owner=foreign
@@ -513,32 +530,138 @@ for failure,message in [('home','ntt.14'),('companion','ntt.13')]:
     cleanup_ok(m)
 record('Injected home and companion placement failures produce failure messages, never success')
 
-validation = '''VALIDATION — 22 October 2026
-Starburst Tail Start 0.1.1
+# A short spoke reaches farther outward than a long arm. Radial ranking
+# wrongly picks the spoke; the requested tail requires travel along the graph.
+# Compare every computed BFS depth with an independent queue-based reference.
+for reverse in (False,True):
+    stars,edges,home=galaxy(pocket=5)
+    shortcut=Obj('short_outer_spoke',499,0)
+    stars.append(shortcut);edges.append((stars[0],shortcut))
+    if reverse: stars.reverse()
+    m=Model(stars,edges,home)
+    old_edges=set(m.edges)
+    m.start(verify=False)
+    assert not m.messages and 'ntt_complete' not in m.player.flags
+    assert 'ntt_pending_verification' in m.player.flags
+    assert m.targets['ntt_tail'] is not shortcut
+    seeds=[s for s in stars if 'ntt_main' in s.flags and
+           s.vars['ntt_radius']<=m.player.vars['ntt_inner_band']]
+    depths={s:0 for s in seeds};queue=deque(seeds)
+    adjacency={s:set() for s in stars}
+    for a,b in map(tuple,old_edges):
+        adjacency[a].add(b);adjacency[b].add(a)
+    while queue:
+        a=queue.popleft()
+        for b in adjacency[a]:
+            if b not in depths:
+                depths[b]=depths[a]+1;queue.append(b)
+    for star,depth in depths.items():
+        assert star.vars['ntt_depth']==depth, (star.id,depth,star.vars)
+    candidates=[s for s in stars if 'ntt_candidate' in s.flags]
+    assert m.player.vars['ntt_diag_depth']==max(depths[s] for s in candidates)>20
+    m.advance()
+    assert m.messages==['ntt.10']
+    assert m.player.vars['ntt_diag_exits']==1
+    cleanup_ok(m)
+record('Deep tail outranks a farther-out short spoke; every BFS depth matches an independent reference in both system iteration orders; success waits for the next-day check')
+
+# Engine evidence: the supplied 4.5.2 save exported 0.99458 for the outermost
+# connected main star. A 0-100 model concealed the previous rim-check bug.
+probe=Obj('radius_probe',503.60894,0)
+m=Model([probe],[],probe,galaxy_radius=506.3525)
+value=m.number('trigger:distance_to_core_percent',Ctx(probe,None,m.player))
+assert abs(value-0.99458)<0.00001
+assert value<1 and value>.95
+record('Radius export uses 0-1 units consistent with observed Stellaris 4.5.2 data')
+
+for fault in ('extra_exit','missing_internal_edge','wrong_exit','wrong_position','missing_target'):
+    stars,edges,home=galaxy(arm_length=20)
+    m=Model(stars,edges,home)
+    m.start(verify=False)
+    assert not m.messages and 'ntt_complete' not in m.player.flags
+    cluster={s for s in stars if 'ntt_cluster' in s.flags}
+    tail=m.targets['ntt_tail']
+    if fault=='extra_exit':
+        outside=next(s for s in stars if s not in cluster and s is not tail)
+        m.edges.add(frozenset((home,outside)))
+    elif fault=='missing_internal_edge':
+        m.edges.remove(next(e for e in m.edges if e<=cluster))
+    elif fault=='wrong_exit':
+        m.edges.remove(frozenset((home,tail)))
+        other=next(s for s in cluster if s is not home)
+        m.edges.add(frozenset((other,tail)))
+    elif fault=='wrong_position': home.x+=200
+    else: del m.targets['ntt_tail']
+    m._adj_edges=None
+    m.advance()
+    assert m.messages==['ntt.15'], (fault,m.messages)
+    assert 'ntt_complete' not in m.player.flags and 'ntt_failed' in m.player.flags
+    cleanup_ok(m)
+record('Five post-move faults are rejected: extra exit, missing internal edge, wrong exit origin, wrong position and missing target')
+
+stars,edges,home=galaxy(pocket=5)
+m=Model(stars,edges,home,origin='origin_mindwardens')
+m.day=5
+m.player.flags.update(('ntt_attempted','ntt_processed','ntt_complete'))
+m.fire('ntt.20')
+assert not m.messages and 'ntt_complete' not in m.player.flags
+m.advance()
+assert m.messages==['ntt.10']
+before=(set(m.edges),[(s.x,s.y) for s in stars],list(m.messages))
+m.fire('ntt.20')
+assert before==(set(m.edges),[(s.x,s.y) for s in stars],list(m.messages))
+cleanup_ok(m)
+for flag,day in [('ntt_v012_attempted',5),('ntt_pending_verification',5),('',30)]:
+    stars,edges,home=galaxy()
+    m=Model(stars,edges,home);m.day=day
+    m.player.flags.update(('ntt_complete',flag))
+    before=(set(m.edges),[(s.x,s.y) for s in stars])
+    m.fire('ntt.20')
+    assert before==(set(m.edges),[(s.x,s.y) for s in stars])
+    assert not m.pending and not m.messages
+record('Early v0.1.1 recovery runs once; pending, repeated and day-30-or-later recovery attempts do not run')
+
+validation = '''VALIDATION — 23 October 2026
+Starburst Tail Start 0.1.2
 
 These checks passed locally:
 ''' + ''.join('- '+c+'\n' for c in checks) + '''
 The tests parse and execute the shipped scripts in a deliberately limited
 Python graph model. The model covers scopes, dynamic relationship flags,
-flood-fill selection, adaptive tail selection, internal-edge restoration,
-failure branches, diagnostics and idempotence. It is not the Stellaris engine.
+flood-fill selection, layered multi-source BFS tail depth, internal-edge
+restoration, delayed verification, failure branches and idempotence.
+It is not the Stellaris engine.
 
 Four synthetic 1,000-system layouts cover failure modes in the old tail
 filters. These are constructed test cases, not the user's save or actual
 Huge galaxy generation. They retain a small attached origin-style pocket,
 but cannot establish compatibility with the Mindwardens quest scripts.
-The exact gate that rejected the user's original map is not yet known.
+The supplied 4.5.2 save was inspected separately. It records 18 systems in
+the starting cluster, one external exit, and a radius export of 0.99458.
+That evidence corrected the model's 0-100 assumption and exposed the need
+to rank by hyperlane depth instead of radial distance.
+
+Additional one-time check, 23 October 2026 (not rerun by this test script):
+A conservative replay used the supplied save's 1,000 system coordinates,
+hyperlanes, starbase/colony occupancy, auras and fleet presence. All visiting
+non-player fleets were excluded, including neutral ones. Recovery selected
+a target at depth 44 versus the old exit's depth 18, using the new inner
+region definition. A 21-system group retained its internal graph, all six
+attached Mindwardens buffer/story systems, ownership, total connectivity
+and exactly one external exit in the model. This did not load or modify
+the user's save in Stellaris, and does not verify the origin's quest logic.
 
 The placement model uses simple coordinates and does not emulate the game's
 collision handling, object ownership bookkeeping, fleet movement, visibility,
-psionic aura propagation, scripted origin setup or delayed events.
+psionic aura propagation or scripted origin setup. Scheduled verification
+is simulated; the engine's scheduler and event-target persistence are not.
 
 NOT performed: launch in Stellaris, new-game generation in the engine,
 save/reload in the engine, multiplayer, achievement verification, or
 Mindwardens story playthrough.
 
 API evidence checked against 4.5.1 engine-generated effect/trigger docs.
-4.5.2 is the intended installed version; its game files were not available.
+The submitted save confirms 4.5.2; its installed game files were unavailable.
 
 Use README-FIRST.txt's in-game checks before committing to a campaign.
 '''

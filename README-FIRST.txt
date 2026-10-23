@@ -1,6 +1,6 @@
-STARBURST TAIL START — v0.1.1 EXPERIMENTAL
+STARBURST TAIL START — v0.1.2 EXPERIMENTAL
 For Stellaris PC 4.5.x • New single-player Starburst games
-Updated 22 October 2026
+Updated 23 October 2026
 
 INSTALL — WINDOWS
 1. Close Stellaris and its launcher.
@@ -13,23 +13,24 @@ INSTALL — WINDOWS
        niki_starburst_tail_start.mod
        niki_starburst_tail_start/
    The .mod file and the folder must be next to each other.
-   Do not copy the outer Starburst-Tail-Start-v0.1.1 folder itself.
-   Updating from 0.1.0? Remove the old niki_starburst_tail_start folder
+   Do not copy the outer Starburst-Tail-Start-v0.1.2 folder itself.
+   Updating from an older version? Remove the old niki_starburst_tail_start folder
    first, then copy the new folder and replace the .mod file.
 5. Open the Paradox launcher. Under your playset, add and enable:
        Starburst Tail Start (Experimental)
    If missing, restart the launcher and check the folder nesting.
 6. Start a NEW single-player game. Select the STARBURST galaxy shape.
    Use your usual empire and starting system.
-7. Let ONE game day pass. Read the mod's result message, pause and press H
-   to return to your capital. Verify the new start before committing to a run.
+7. Let TWO game days pass: one for the move, one for verification. Read
+   the result message, pause and press H to return to your capital.
 
 No Steam Workshop subscription or additional mod is required.
 No executable, PowerShell script, administrator access or download is used.
 
 WHAT IT DOES
 - Uses the existing randomly generated Starburst galaxy.
-- Finds an eligible outer star, preferring thin tails and endpoints.
+- Finds the deepest eligible outer system by hyperlane distance from the
+  inner region, then breaks ties using border buffer, degree and radius.
 - Moves your actual home system near that star, just inward at the extreme rim.
 - Moves its unowned/player-owned two-jump neighbourhood and small attached
   branches with it, up to a total of 24 systems.
@@ -37,33 +38,48 @@ WHAT IT DOES
 - Gives the cluster one connection to the rest of the galaxy via your home.
 - Reconnects the old region locally so removing your cluster does not split
   the rest of the galaxy.
-- Runs once, during the first day. No ongoing polling or modifiers.
+- Moves once, then verifies on the following day. No ongoing polling.
 
 Planets, pops, leaders, buildings, resources and origin selections are not
 recreated or granted by this mod. Their existing systems are moved.
 No new stars are added. The old region may gain local shortcut hyperlanes.
 
-The target is selected from the outer 15% of the connected main galaxy's
-measured radial extent. The script prefers thin tails with a two-hop buffer
-from other empires, then dense tails with that buffer, then clear unowned
-outer systems without the buffer. It never moves into an occupied system,
-a system with an owned planet, a psionic aura or a hostile-owned fleet.
-Neutral visiting fleets no longer block a target. The old starter cluster
-must be more than 130 map units from the destination.
+The script measures distance ALONG HYPERLANES from the inner region, using
+all main systems in the inner fifth of the measured radial span as seeds.
+The target must be in the outer 15% of the main galaxy's radial extent.
+The deepest eligible target wins. A two-hop border buffer, fewer links and
+radius only break ties, so a shorter outer branch cannot outrank a long tail.
+The target remains unowned, without owned planets, auras or hostile-owned
+fleets, and over 130 map units from the original starter cluster.
 
-Your home is placed 18-26 map units from the target: outward normally,
-inward if the target is at 95% or more of the nominal galactic radius.
-It aims for the END REGION of a tail. It does not guarantee the single
-farthest star on every map, and does not reserve an entire empty arm.
-The rest of the starter cluster is packed within 65 units of your home,
-towards the core. Its precise geometry changes; its internal lanes do not.
+The home is placed 18-26 units from the target: inward if its radius fraction
+is at least 0.95, otherwise outward. Companion systems are requested within
+65 units of home; placement checks allow up to 80. Internal lanes are kept,
+but precise geometry changes. This does not reserve an empty arm or exclude
+nearby AI empires. The deepest available target may be near another empire.
 
-CHANGES IN 0.1.1
-The first release could report "No Suitable Tail Found" even with usable
-outer systems: it required a fixed 75-94% radius, rejected all fleets and
-required a two-hop buffer. These filters are now adaptive or preferences as
-described above. The result window includes the version. A failed tail scan
-also shows counts for each filter and the measured maximum radius.
+FIX IN 0.1.2
+- Replaces radial ranking with hyperlane depth so a short outer branch does
+  not win merely because it reaches a slightly larger radius.
+- Corrects a radius-unit error confirmed by the supplied 4.5.2 save: the
+  engine exported 0.99458, not 99.458. Calculations now use fractions.
+- Delays success until the next day, checking position, original internal
+  lanes and exactly one external exit from home to the chosen target.
+- Names the selected target and shows depth and verification counts.
+- Adds optional one-time recovery for early starts moved by an old version.
+
+RECOVER THE EXISTING EARLY SAVE
+1. Keep a separate backup of your .sav file.
+2. Update the mod, launch Stellaris and load the old save while paused.
+3. Open the game's console and enter:
+       event ntt.20
+4. Close the console and let ONE day pass. Read the versioned result.
+
+This recovery command is only for an older version's successful attempt,
+before 30 days have passed. It cannot repeat after a v0.1.2 attempt and does
+not run automatically on loading. The current neighbourhood may include a
+few additional stars near the previous exit. The 24-system cap still applies.
+On a failure, reload your backup; partial moves are not rolled back.
 
 ORIGINS AND COMPATIBILITY
 - This does not consume an origin, civic or trait slot.
@@ -80,17 +96,18 @@ ORIGINS AND COMPATIBILITY
   mechanics outside this mod's supported scope.
 - Other special origins and galaxy-generation mods are unverified.
 - Use the vanilla 600/800/1000-star Starburst shapes for initial testing.
-- Other galaxy shapes, multiplayer and existing saves are left alone.
+- Other galaxy shapes and multiplayer are left alone. Existing saves only
+  change if you explicitly run the early recovery command above.
 - Do not combine with another mod that relocates starting systems.
 - The mod changes the gameplay checksum. Achievement eligibility has not
   been tested. Use a non-Ironman test start.
 
 RESULT MESSAGES
-Success: the script verified that every selected system reached the target
-area and reconstructed the connections.
+Success: the next-day check verified the home position, all selected
+systems within range, the original internal lanes and exactly one exit.
 No suitable tail / unsupported layout: no map changes were made.
-Placement incomplete / placement failed: discard that newly generated
-galaxy and start again. Partial moves are not automatically rolled back.
+Placement incomplete / placement failed / verification failed: reload
+your backup or discard that newly generated galaxy and start again. Partial moves are not automatically rolled back.
 
 VERIFICATION STATUS — PLEASE READ
 The scripts have been checked locally against Stellaris 4.5.1's generated
@@ -104,21 +121,21 @@ camera/fog behaviour and origin quest compatibility require an in-game test.
 See VALIDATION.txt for what was actually checked.
 
 QUICK IN-GAME CHECK
-- Your home is visibly near an outer tail after the first day.
+- Your home is near the selected tail after the versioned success message.
 - Homeworld economy, ruler and fleets are present.
 - Expected guaranteed worlds and origin story systems remain reachable.
 - There is a short exit to the tail, not a line across the whole map.
 - Any origin-specific neighbouring country, aura or quest still behaves.
 - Save, reload and verify the systems have not moved again.
-For Mindwardens, verify the story pocket BEFORE playing past the first day.
+For Mindwardens, verify the story pocket immediately after confirmation.
 
 IF IT DOES NOT WORK
-For "No Suitable Tail Found (v0.1.1)", send the complete popup, including
+For "No Suitable Tail Found (v0.1.2)", send the complete popup, including
 the scan counts. If the title has no version, the old mod is still loaded.
 The same counts are written to game.log. They narrow down which filter
-rejected your generated map. The fix is tested on synthetic 1,000-system
-maps, not your save; the original rejection cannot be diagnosed exactly
-without the new counts or a save/log.
+rejected your generated map. The scripts were checked in a model with
+synthetic maps and geometry from the submitted save. No engine run has
+been performed here; include your new save and logs for further diagnosis.
 
 Also include your exact Stellaris version, chosen origin and
 your enabled mod list, plus the relevant lines from:
